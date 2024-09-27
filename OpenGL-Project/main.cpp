@@ -15,33 +15,19 @@ using namespace std;
 #define numVBOs 2
 
 float cameraX, cameraY, cameraZ;
+float pyrLocX, pyrLocY, pyrLocZ;
 GLuint renderingProgram;
 GLuint vao[numVAOs];
 GLuint vbo[numVBOs];
 
 GLuint mvLoc, vLoc, pLoc, tfLoc;
 int width, height;
-float aspect, timeFactor;
+float aspect;
 glm::mat4 pMat, vMat, mMat, mvMat;
-
-stack<glm::mat4> mvStack;
+GLuint brickTexture;
 
 void setupVertices(void)
 {
-	float cubePositions[108] =
-	{ -1.0f,  1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f,
-		1.0f, -1.0f, -1.0f, 1.0f,  1.0f, -1.0f, -1.0f,  1.0f, -1.0f,
-		1.0f, -1.0f, -1.0f, 1.0f, -1.0f,  1.0f, 1.0f,  1.0f, -1.0f,
-		1.0f, -1.0f,  1.0f, 1.0f,  1.0f,  1.0f, 1.0f,  1.0f, -1.0f,
-		1.0f, -1.0f,  1.0f, -1.0f, -1.0f,  1.0f, 1.0f,  1.0f,  1.0f,
-		-1.0f, -1.0f,  1.0f, -1.0f,  1.0f,  1.0f, 1.0f,  1.0f,  1.0f,
-		-1.0f, -1.0f,  1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f,  1.0f,
-		-1.0f, -1.0f, -1.0f, -1.0f,  1.0f, -1.0f, -1.0f,  1.0f,  1.0f,
-		-1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f, -1.0f,
-		1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f,  1.0f,
-		-1.0f,  1.0f, -1.0f, 1.0f,  1.0f, -1.0f, 1.0f,  1.0f,  1.0f,
-		1.0f,  1.0f,  1.0f, -1.0f,  1.0f,  1.0f, -1.0f,  1.0f, -1.0f
-	};
 	// pyramid with 18 vertices
 	float pyramidPositions[54] =
 	{
@@ -52,27 +38,37 @@ void setupVertices(void)
 		-1.0f, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f,
 		1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f 
 	};
+	// pyramid texture coordinates
+	float pyrTexCoords[36] =
+	{
+		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		// top and right faces
+		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		// back and left faces
+		0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f,		1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f		// base triangles
+	};
 	glGenVertexArrays(1, vao);
 	glBindVertexArray(vao[0]);
 	glGenBuffers(numVBOs, vbo);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(cubePositions), cubePositions, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidPositions), pyramidPositions, GL_STATIC_DRAW);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidPositions), pyramidPositions, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(pyrTexCoords), pyrTexCoords, GL_STATIC_DRAW);
+
 }
 
 void init(GLFWwindow* window)
 {
 	renderingProgram = Utils::createShaderProgram("vertShader.glsl", "fragShader.glsl");
 	cameraX = 0.0f, cameraY = 0.0f, cameraZ = 8.0f;
+	pyrLocX = 0.0f, pyrLocY = 0.0f, pyrLocZ = 0.0f;
+	setupVertices();
+
 	glfwGetFramebufferSize(window, &width, &height);
 	aspect = (float)width / (float)height;
 	pMat = glm::perspective(1.0472f, aspect, 0.1f, 1000.0f);
 
-	setupVertices();
-
+	brickTexture = Utils::loadTexture("brick1.jpg");
 }
 
 void display(GLFWwindow* window, double currentTime)
@@ -87,52 +83,39 @@ void display(GLFWwindow* window, double currentTime)
 	pLoc = glGetUniformLocation(renderingProgram, "p_matrix");
 
 	vMat = glm::translate(glm::mat4(1.0f), glm::vec3(-cameraX, -cameraY, -cameraZ));
-	mvStack.push(vMat);
+	mMat = glm::translate(glm::mat4(1.0f), glm::vec3(pyrLocX, pyrLocY, pyrLocZ));
+	
+	mMat = glm::rotate(mMat, -0.45f, glm::vec3(1.0f, 0.0, 0.0f));
+	mMat = glm::rotate(mMat, 0.61f, glm::vec3(0.0f, 1.0, 0.0f));
+	mMat = glm::rotate(mMat, 0.00f, glm::vec3(0.0f, 0.0, 1.0f));
+
+	mvMat = vMat * mMat;
 
 	glUniformMatrix4fv(pLoc, 1, GL_FALSE, glm::value_ptr(pMat));
+	glUniformMatrix4fv(mvLoc, 1, GL_FALSE, glm::value_ptr(mvMat));
 
-	// "Sun" pyramid
-	mvStack.push(mvStack.top());
-	mvStack.top() *= glm::translate(glm::mat4(1.0f), glm::vec3(0.0f));
-	mvStack.push(mvStack.top());
-	mvStack.top() *= glm::rotate(glm::mat4(1.0f), (float)currentTime, glm::vec3(1.0f, 0.0f, 0.0f));
-	glUniformMatrix4fv(mvLoc, 1, GL_FALSE, glm::value_ptr(mvStack.top()));
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(0);
+
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
-	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(1);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, brickTexture);
+
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
+
 	glDrawArrays(GL_TRIANGLES, 0, 18);
-	mvStack.pop();
+}
 
-	// "Planet" cube
-	mvStack.push(mvStack.top());
-	mvStack.top() *= glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, sin((float)currentTime) * 2.0f, cos((float)currentTime) * 2.0f));
-	mvStack.push(mvStack.top());
-	mvStack.top() *= rotate(glm::mat4(1.0f), (float)currentTime, glm::vec3(0.0, 0.0, 1.0));
-	glUniformMatrix4fv(mvLoc, 1, GL_FALSE, glm::value_ptr(mvStack.top()));
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
-	glEnableVertexAttribArray(0);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-	mvStack.pop();
-
-	// "Moon" smaller cube
-	mvStack.push(mvStack.top());
-	mvStack.top() *= glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, sin((float)currentTime) * 2.0f, cos((float)currentTime) * 2.0f));
-	mvStack.top() *= glm::rotate(glm::mat4(1.0f), (float)currentTime, glm::vec3(0.0, 0.0, 1.0));
-	mvStack.top() *= glm::scale(glm::mat4(1.0f), glm::vec3(0.25f));
-	glUniformMatrix4fv(mvLoc, 1, GL_FALSE, glm::value_ptr(mvStack.top()));
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-	glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, 0);
-	glEnableVertexAttribArray(0);
-	glEnable(GL_DEPTH_TEST);
-	glDepthFunc(GL_LEQUAL);
-	glDrawArrays(GL_TRIANGLES, 0, 36);
-	mvStack.pop(); mvStack.pop(); mvStack.pop();
-	mvStack.pop();
+void window_reshape_callback(GLFWwindow* window, int newWidth, int newHeight)
+{
+	aspect = (float)newWidth / (float)newHeight;
+	glViewport(0, 0, newWidth, newHeight);
+	pMat = glm::perspective(1.0472f, aspect, 0.1f, 1000.0f);
 }
 
 int main(void)
@@ -150,6 +133,7 @@ int main(void)
 		exit(EXIT_FAILURE);
 	}
 	glfwSwapInterval(1);
+	glfwSetWindowSizeCallback(window, window_reshape_callback);
 	init(window);
 	while (!glfwWindowShouldClose(window))
 	{

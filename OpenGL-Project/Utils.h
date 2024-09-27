@@ -13,6 +13,9 @@ public:
 	static GLuint createShaderProgram(const char* vp, const char* gp, const char* fp);
 	static GLuint createShaderProgram(const char* vp, const char* tCS, const char* tES, const char* fp);
 	static GLuint createShaderProgram(const char* vp, const char* tCS, const char* tES, const char* gp, const char* fp);
+
+	// Texture utility functions
+	static GLuint loadTexture(const char* texImagePath);
 	
 
 private:

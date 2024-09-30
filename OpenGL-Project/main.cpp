@@ -9,13 +9,18 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "Utils.h"
+#include "ImportedModel.h"
+
+#include "Sphere.h"
+#include "Torus.h"
+
 using namespace std;
 
 #define numVAOs 1
-#define numVBOs 2
+#define numVBOs 4
 
 float cameraX, cameraY, cameraZ;
-float pyrLocX, pyrLocY, pyrLocZ;
+float sphereLocX, sphereLocY, sphereLocZ;
 GLuint renderingProgram;
 GLuint vao[numVAOs];
 GLuint vbo[numVBOs];
@@ -24,51 +29,69 @@ GLuint mvLoc, vLoc, pLoc, tfLoc;
 int width, height;
 float aspect;
 glm::mat4 pMat, vMat, mMat, mvMat;
-GLuint brickTexture;
+GLuint earthTexture;
+
+Sphere mySphere = Sphere(48);
+Torus myTorus = Torus(0.5f, 0.2f, 48);
+ImportedModel myModel("shuttle.obj");
 
 void setupVertices(void)
 {
-	// pyramid with 18 vertices
-	float pyramidPositions[54] =
+	std::vector<int> ind = myTorus.getIndices();
+	std::vector<glm::vec3> vert = myTorus.getVertices();
+	std::vector<glm::vec2> tex = myTorus.getTexCoords();
+	std::vector<glm::vec3> norm = myTorus.getNormals();
+
+	std::vector<float> pvalues;
+	std::vector<float> tvalues;
+	std::vector<float> nvalues;
+
+	for (int i = 0; i < myTorus.getNumVertices(); i++)
 	{
-		-1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 0.0f,
-		1.0f, -1.0f, 1.0f, 1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
-		1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 0.0f, 1.0f, 0.0f, 
-		-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 
-		-1.0f, -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, -1.0f, -1.0f, 1.0f,
-		1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f 
-	};
-	// pyramid texture coordinates
-	float pyrTexCoords[36] =
-	{
-		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		// top and right faces
-		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 1.0f,		// back and left faces
-		0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f,		1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f		// base triangles
-	};
+		pvalues.push_back(vert[i].x);
+		pvalues.push_back(vert[i].y);
+		pvalues.push_back(vert[i].z);
+
+		tvalues.push_back(tex[i].s);
+		tvalues.push_back(tex[i].t);
+
+		nvalues.push_back(norm[i].x);
+		nvalues.push_back(norm[i].y);
+		nvalues.push_back(norm[i].z);
+	}
 	glGenVertexArrays(1, vao);
 	glBindVertexArray(vao[0]);
 	glGenBuffers(numVBOs, vbo);
 
+	// put vertices into buffer #0
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(pyramidPositions), pyramidPositions, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, pvalues.size() * 4, &pvalues[0], GL_STATIC_DRAW);
 
+	// put the texture coordinates into buffer #1
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(pyrTexCoords), pyrTexCoords, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, tvalues.size() * 4, &tvalues[0], GL_STATIC_DRAW);
 
+	// put the normals into buffer #2
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
+	glBufferData(GL_ARRAY_BUFFER, nvalues.size() * 4, &nvalues[0], GL_STATIC_DRAW);
+
+	// put the indices into buffer #3
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[3]);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, ind.size() * 4, &ind[0], GL_STATIC_DRAW);
 }
 
 void init(GLFWwindow* window)
 {
 	renderingProgram = Utils::createShaderProgram("vertShader.glsl", "fragShader.glsl");
-	cameraX = 0.0f, cameraY = 0.0f, cameraZ = 8.0f;
-	pyrLocX = 0.0f, pyrLocY = 0.0f, pyrLocZ = 0.0f;
+	cameraX = 0.0f, cameraY = 0.0f, cameraZ = 2.0f;
+	sphereLocX = 0.0f, sphereLocY = 0.0f, sphereLocZ = -0.5f;
 	setupVertices();
 
 	glfwGetFramebufferSize(window, &width, &height);
 	aspect = (float)width / (float)height;
 	pMat = glm::perspective(1.0472f, aspect, 0.1f, 1000.0f);
 
-	brickTexture = Utils::loadTexture("brick1.jpg");
+	earthTexture = Utils::loadTexture("brick1.jpg");
 }
 
 void display(GLFWwindow* window, double currentTime)
@@ -83,7 +106,7 @@ void display(GLFWwindow* window, double currentTime)
 	pLoc = glGetUniformLocation(renderingProgram, "p_matrix");
 
 	vMat = glm::translate(glm::mat4(1.0f), glm::vec3(-cameraX, -cameraY, -cameraZ));
-	mMat = glm::translate(glm::mat4(1.0f), glm::vec3(pyrLocX, pyrLocY, pyrLocZ));
+	mMat = glm::translate(glm::mat4(1.0f), glm::vec3(sphereLocX, sphereLocY, sphereLocZ));
 	
 	mMat = glm::rotate(mMat, -0.45f, glm::vec3(1.0f, 0.0, 0.0f));
 	mMat = glm::rotate(mMat, 0.61f, glm::vec3(0.0f, 1.0, 0.0f));
@@ -103,12 +126,16 @@ void display(GLFWwindow* window, double currentTime)
 	glEnableVertexAttribArray(1);
 
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, brickTexture);
+	glBindTexture(GL_TEXTURE_2D, earthTexture);
 
+	glEnable(GL_CULL_FACE);
+	glFrontFace(GL_CCW);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 
-	glDrawArrays(GL_TRIANGLES, 0, 18);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[3]);
+	glDrawElements(GL_TRIANGLES, myTorus.getNumIndices(), GL_UNSIGNED_INT, 0);
+	//glDrawArrays(GL_TRIANGLES, 0, mySphere.getNumIndices());
 }
 
 void window_reshape_callback(GLFWwindow* window, int newWidth, int newHeight)

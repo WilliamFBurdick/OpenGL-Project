@@ -16,24 +16,73 @@
 
 using namespace std;
 
+float toRadians(float degrees) { return (degrees * 2.0f * 3.14159f) / 360.0f; }
+
 #define numVAOs 1
 #define numVBOs 4
 
 float cameraX, cameraY, cameraZ;
-float sphereLocX, sphereLocY, sphereLocZ;
+float torLocX, torLocY, torLocZ;
 GLuint renderingProgram;
 GLuint vao[numVAOs];
 GLuint vbo[numVBOs];
 
-GLuint mvLoc, vLoc, pLoc, tfLoc;
+Torus myTorus = Torus(0.5f, 0.2f, 48);
+int numTorusVertices = myTorus.getNumVertices();
+int numTorusIndices = myTorus.getNumIndices();
+
+glm::vec3 initialLightLoc = glm::vec3(5.0f, 2.0f, 2.0f);
+float amt = 0.0f;
+
+// variable allocation for display
+GLuint mLoc, vLoc, pLoc, nLoc;
+GLuint globalAmbLoc, ambLoc, diffLoc, specLoc, posLoc, mambLoc, mdiffLoc, mspecLoc, mshiLoc;
 int width, height;
 float aspect;
-glm::mat4 pMat, vMat, mMat, mvMat;
-GLuint earthTexture;
+glm::mat4 pMat, vMat, mMat, invTrMat, rMat;
+glm::vec3 currentLightPos, transformed;
+float lightPos[3];
 
-Sphere mySphere = Sphere(48);
-Torus myTorus = Torus(0.5f, 0.2f, 48);
-ImportedModel myModel("shuttle.obj");
+// white light
+float globalAmbient[4] = { 0.7f, 0.7f, 0.7f, 1.0f };
+float lightAmbient[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+float lightDiffuse[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+float lightSpecular[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+// gold material
+float* matAmb = Utils::goldAmbient();
+float* matDif = Utils::goldDiffuse();
+float* matSpe = Utils::goldSpecular();
+float matShi = Utils::goldShininess();
+
+void installLights()
+{
+	lightPos[0] = currentLightPos.x;
+	lightPos[1] = currentLightPos.y;
+	lightPos[2] = currentLightPos.z;
+
+	// get locations of the light and material fields in the shader
+	globalAmbLoc = glGetUniformLocation(renderingProgram, "globalAmbient");
+	ambLoc = glGetUniformLocation(renderingProgram, "light.ambient");
+	diffLoc = glGetUniformLocation(renderingProgram, "light.diffuse");
+	specLoc = glGetUniformLocation(renderingProgram, "light.specular");
+	posLoc = glGetUniformLocation(renderingProgram, "light.position");
+	mambLoc = glGetUniformLocation(renderingProgram, "material.ambient");
+	mdiffLoc = glGetUniformLocation(renderingProgram, "material.diffuse");
+	mspecLoc = glGetUniformLocation(renderingProgram, "material.specular");
+	mshiLoc = glGetUniformLocation(renderingProgram, "material.shininess");
+
+	// set the uniform light and material values in the shader
+	glProgramUniform4fv(renderingProgram, globalAmbLoc, 1, globalAmbient);
+	glProgramUniform4fv(renderingProgram, ambLoc, 1, lightAmbient);
+	glProgramUniform4fv(renderingProgram, diffLoc, 1, lightDiffuse);
+	glProgramUniform4fv(renderingProgram, specLoc, 1, lightSpecular);
+	glProgramUniform3fv(renderingProgram, posLoc, 1, lightPos);
+	glProgramUniform4fv(renderingProgram, mambLoc, 1, matAmb);
+	glProgramUniform4fv(renderingProgram, mdiffLoc, 1, matDif);
+	glProgramUniform4fv(renderingProgram, mspecLoc, 1, matSpe);
+	glProgramUniform1f(renderingProgram, mshiLoc, matShi);
+}
 
 void setupVertices(void)
 {
@@ -82,16 +131,15 @@ void setupVertices(void)
 
 void init(GLFWwindow* window)
 {
-	renderingProgram = Utils::createShaderProgram("vertShader.glsl", "fragShader.glsl");
-	cameraX = 0.0f, cameraY = 0.0f, cameraZ = 2.0f;
-	sphereLocX = 0.0f, sphereLocY = 0.0f, sphereLocZ = -0.5f;
-	setupVertices();
+	renderingProgram = Utils::createShaderProgram("./Shaders/blinnPhongVertShader.glsl", "./Shaders/blinnPhongFragShader.glsl");
+	cameraX = 0.0f, cameraY = 0.0f, cameraZ = 1.0f;
+	torLocX = 0.0f, torLocY = 0.0f, torLocZ = -1.0f;
 
 	glfwGetFramebufferSize(window, &width, &height);
 	aspect = (float)width / (float)height;
 	pMat = glm::perspective(1.0472f, aspect, 0.1f, 1000.0f);
 
-	earthTexture = Utils::loadTexture("brick1.jpg");
+	setupVertices();
 }
 
 void display(GLFWwindow* window, double currentTime)
@@ -102,31 +150,38 @@ void display(GLFWwindow* window, double currentTime)
 
 	glUseProgram(renderingProgram);
 
-	mvLoc = glGetUniformLocation(renderingProgram, "mv_matrix");
+	mLoc = glGetUniformLocation(renderingProgram, "m_matrix");
+	vLoc = glGetUniformLocation(renderingProgram, "v_matrix");
 	pLoc = glGetUniformLocation(renderingProgram, "p_matrix");
+	nLoc = glGetUniformLocation(renderingProgram, "norm_matrix");
 
 	vMat = glm::translate(glm::mat4(1.0f), glm::vec3(-cameraX, -cameraY, -cameraZ));
-	mMat = glm::translate(glm::mat4(1.0f), glm::vec3(sphereLocX, sphereLocY, sphereLocZ));
-	
-	mMat = glm::rotate(mMat, -0.45f, glm::vec3(1.0f, 0.0, 0.0f));
-	mMat = glm::rotate(mMat, 0.61f, glm::vec3(0.0f, 1.0, 0.0f));
-	mMat = glm::rotate(mMat, 0.00f, glm::vec3(0.0f, 0.0, 1.0f));
 
-	mvMat = vMat * mMat;
+	mMat = glm::translate(glm::mat4(1.0f), glm::vec3(torLocX, torLocY, torLocZ));
+	mMat *= glm::rotate(mMat, toRadians(35.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 
+	currentLightPos = glm::vec3(initialLightLoc.x, initialLightLoc.y, initialLightLoc.z);
+	amt = (float)currentTime * 25.0f;
+	rMat = glm::rotate(glm::mat4(1.0f), toRadians(amt), glm::vec3(0.0f, 0.0f, 1.0f));
+	currentLightPos = glm::vec3(rMat * glm::vec4(currentLightPos, 1.0f));
+
+	installLights();
+
+	// build the inverse-transpose of the M matrix, for transforming normal vectors
+	invTrMat = glm::transpose(glm::inverse(mMat));
+
+	glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mMat));
+	glUniformMatrix4fv(vLoc, 1, GL_FALSE, glm::value_ptr(vMat));
 	glUniformMatrix4fv(pLoc, 1, GL_FALSE, glm::value_ptr(pMat));
-	glUniformMatrix4fv(mvLoc, 1, GL_FALSE, glm::value_ptr(mvMat));
+	glUniformMatrix4fv(nLoc, 1, GL_FALSE, glm::value_ptr(invTrMat));
 
 	glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
 
-	glBindBuffer(GL_ARRAY_BUFFER, vbo[1]);
-	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+	glBindBuffer(GL_ARRAY_BUFFER, vbo[2]);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(1);
-
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, earthTexture);
 
 	glEnable(GL_CULL_FACE);
 	glFrontFace(GL_CCW);
@@ -134,8 +189,7 @@ void display(GLFWwindow* window, double currentTime)
 	glDepthFunc(GL_LEQUAL);
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo[3]);
-	glDrawElements(GL_TRIANGLES, myTorus.getNumIndices(), GL_UNSIGNED_INT, 0);
-	//glDrawArrays(GL_TRIANGLES, 0, mySphere.getNumIndices());
+	glDrawElements(GL_TRIANGLES, numTorusIndices, GL_UNSIGNED_INT, 0);
 }
 
 void window_reshape_callback(GLFWwindow* window, int newWidth, int newHeight)
